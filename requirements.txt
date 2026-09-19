@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+asyncpg
+alembic
+pydantic-settings
+python-dotenv
+python-multipart
+email-validator
+openai
+google-genai
+pytest
+httpx
+ruff
+psycopg2-binary
+PyJWT
+pwdlib[argon2]
