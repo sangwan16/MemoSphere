@@ -19,6 +19,7 @@ if not SECRET_KEY:
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "30"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("JWT_REFRESH_EXPIRE_DAYS", "7"))
+EMAIL_VERIFICATION_EXPIRE_HOURS = int(os.getenv("EMAIL_VERIFICATION_EXPIRE_HOURS", "24"))
 
 password_hash = PasswordHash.recommended()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
@@ -46,6 +47,31 @@ def create_refresh_token(user_id: int) -> str:
     )
 
 
+def create_email_verification_token(user_id: int, email: str) -> str:
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        hours=EMAIL_VERIFICATION_EXPIRE_HOURS
+    )
+    payload = {
+        "sub": str(user_id),
+        "email": email,
+        "type": "email_verification",
+        "exp": expires_at,
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def get_email_verification_claims(token: str) -> tuple[int, str]:
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    if payload.get("type") != "email_verification":
+        raise InvalidTokenError("Not an email verification token")
+
+    email = payload.get("email")
+    if not isinstance(email, str):
+        raise InvalidTokenError("Missing email claim")
+
+    return int(payload.get("sub", "")), email
+
+
 def get_user_id_from_refresh_token(token: str) -> int:
     payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     if payload.get("type") != "refresh":
@@ -71,6 +97,6 @@ async def get_current_user(
         raise credentials_error from None
 
     user = await db.get(User, user_id)
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or not user.is_email_verified:
         raise credentials_error
     return user

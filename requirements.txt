@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 sqlalchemy
+greenlet
 asyncpg
 alembic
 pydantic-settings
@@ -12,6 +13,6 @@ google-genai
 pytest
 httpx
 ruff
-psycopg2-binary
+psycopg[binary]
 PyJWT
 pwdlib[argon2]
