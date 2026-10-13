@@ -26,3 +26,15 @@ class ProfileStatsRead(BaseModel):
     posts_count: int
     followers_count: int
     following_count: int
+
+
+class UserProfileRead(BaseModel):
+    id: int
+    username: str | None
+    is_public: bool
+    is_self: bool
+    is_following: bool
+    can_view_posts: bool
+    posts_count: int
+    followers_count: int
+    following_count: int

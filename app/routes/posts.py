@@ -1,13 +1,14 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth.security import get_current_user
 from app.db.database import get_db
 from app.models.category import Category
+from app.models.follow import Follow
 from app.models.post import Post
 from app.models.user import User
 from app.schemas.post import PostCreate, PostRead, PostUpdate
@@ -82,6 +83,61 @@ async def list_posts(
         select(Post)
         .options(selectinload(Post.author), selectinload(Post.category))
         .where(Post.is_draft.is_(False))
+        .order_by(Post.created_at.desc())
+    )
+    posts = result.scalars().all()
+    return [
+        PostRead(
+            id=post.id,
+            title=post.title,
+            content=post.content,
+            image_urls=post.image_urls,
+            excerpt=post.excerpt,
+            category_id=post.category_id,
+            author_id=post.author_id,
+            visibility=post.visibility,
+            is_draft=post.is_draft,
+            created_at=post.created_at,
+            updated_at=post.updated_at,
+            author_email=post.author.email if post.author else None,
+            author_username=post.author.username if post.author else None,
+        )
+        for post in posts
+    ]
+
+
+@router.get("/users/{user_id}", response_model=list[PostRead])
+async def list_user_posts(
+    user_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[PostRead]:
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    is_following = user.id == current_user.id or await db.scalar(
+        select(Follow.id).where(
+            Follow.follower_id == current_user.id,
+            Follow.following_id == user.id,
+        )
+    ) is not None
+    if not user.is_public and not is_following:
+        raise HTTPException(status_code=403, detail="This profile is private")
+
+    visible_post = or_(
+        Post.visibility == "public",
+        and_(Post.visibility == "followers", is_following),
+        and_(Post.visibility == "private", Post.author_id == current_user.id),
+    )
+    result = await db.execute(
+        select(Post)
+        .options(selectinload(Post.author), selectinload(Post.category))
+        .where(
+            Post.author_id == user.id,
+            Post.is_draft.is_(False),
+            visible_post,
+        )
         .order_by(Post.created_at.desc())
     )
     posts = result.scalars().all()

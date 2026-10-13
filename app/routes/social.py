@@ -10,7 +10,13 @@ from app.models.follow import Follow
 from app.models.notification import Notification
 from app.models.post import Post
 from app.models.user import User
-from app.schemas.follow import FollowRead, FollowRequest, FollowUserRead, ProfileStatsRead
+from app.schemas.follow import (
+    FollowRead,
+    FollowRequest,
+    FollowUserRead,
+    ProfileStatsRead,
+    UserProfileRead,
+)
 
 router = APIRouter(prefix="/social", tags=["social"])
 
@@ -65,6 +71,52 @@ async def list_my_following(
         .order_by(Follow.created_at.desc())
     )
     return [FollowUserRead.model_validate(user) for user in result.scalars().all()]
+
+
+@router.get("/users/{user_id}", response_model=UserProfileRead)
+async def get_user_profile(
+    user_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> UserProfileRead:
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    is_following = False
+    if user.id != current_user.id:
+        is_following = await db.scalar(
+            select(Follow.id).where(
+                Follow.follower_id == current_user.id,
+                Follow.following_id == user.id,
+            )
+        ) is not None
+
+    posts_count = await db.scalar(
+        select(func.count(Post.id)).where(
+            Post.author_id == user.id,
+            Post.is_draft.is_(False),
+        )
+    )
+    followers_count = await db.scalar(
+        select(func.count(Follow.id)).where(Follow.following_id == user.id)
+    )
+    following_count = await db.scalar(
+        select(func.count(Follow.id)).where(Follow.follower_id == user.id)
+    )
+    can_view_posts = user.is_public or user.id == current_user.id or is_following
+
+    return UserProfileRead(
+        id=user.id,
+        username=user.username,
+        is_public=user.is_public,
+        is_self=user.id == current_user.id,
+        is_following=is_following,
+        can_view_posts=can_view_posts,
+        posts_count=posts_count or 0,
+        followers_count=followers_count or 0,
+        following_count=following_count or 0,
+    )
 
 
 @router.post("/follow", response_model=FollowRead, status_code=status.HTTP_201_CREATED)
