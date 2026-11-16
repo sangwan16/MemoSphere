@@ -34,6 +34,7 @@ class UserProfileRead(BaseModel):
     is_public: bool
     is_self: bool
     is_following: bool
+    has_pending_request: bool
     can_view_posts: bool
     posts_count: int
     followers_count: int

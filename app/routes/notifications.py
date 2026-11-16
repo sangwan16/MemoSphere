@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.security import get_current_user
@@ -11,6 +11,20 @@ from app.models.user import User
 from app.schemas.notification import NotificationCreate, NotificationRead
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
+
+
+@router.get("/unread-count", response_model=dict[str, int])
+async def get_unread_notification_count(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, int]:
+    count = await db.scalar(
+        select(func.count(Notification.id)).where(
+            Notification.user_id == current_user.id,
+            Notification.is_read.is_(False),
+        )
+    )
+    return {"count": count or 0}
 
 
 @router.get("", response_model=list[NotificationRead])
