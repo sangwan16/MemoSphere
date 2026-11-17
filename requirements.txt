@@ -8,7 +8,6 @@ pydantic-settings
 python-dotenv
 python-multipart
 email-validator
-openai
 google-genai
 langchain
 langgraph

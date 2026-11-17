@@ -1,11 +1,10 @@
 import asyncio
 import importlib
 from types import ModuleType, SimpleNamespace
-from typing import Self
 
 import pytest
 from fastapi import HTTPException
-from openai import OpenAIError
+from google.genai.errors import APIError
 
 from app.schemas.writing_assistant import WritingSuggestionRequest
 
@@ -20,34 +19,42 @@ def writing_assistant_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     return importlib.import_module("app.routes.writing_assistant")
 
 
-class FakeResponses:
+class FakeModels:
     def __init__(self, output_text: str):
         self.output_text = output_text
         self.request: dict[str, object] | None = None
 
-    async def create(self, **kwargs: object) -> SimpleNamespace:
+    async def generate_content(self, **kwargs: object) -> SimpleNamespace:
         self.request = kwargs
-        return SimpleNamespace(output_text=self.output_text)
+        return SimpleNamespace(text=self.output_text)
+
+
+class FakeAsyncClient:
+    def __init__(self, output_text: str):
+        self.models = FakeModels(output_text)
+        self.closed = False
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 class FakeClient:
     def __init__(self, output_text: str):
-        self.responses = FakeResponses(output_text)
+        self.aio = FakeAsyncClient(output_text)
+        self.closed = False
 
-    async def __aenter__(self) -> Self:
-        return self
-
-    async def __aexit__(self, *args: object) -> None:
-        return None
+    def close(self) -> None:
+        self.closed = True
 
 
-def test_suggest_writing_uses_non_stored_response_and_returns_suggestion(
+def test_suggest_writing_calls_gemini_and_returns_suggestion(
     monkeypatch: pytest.MonkeyPatch,
     writing_assistant_module: ModuleType,
 ) -> None:
     fake_client = FakeClient("  A clearer draft.  ")
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setattr(writing_assistant_module, "AsyncOpenAI", lambda **_: fake_client)
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    monkeypatch.setattr(writing_assistant_module.genai, "Client", lambda **_: fake_client)
 
     result = asyncio.run(
         writing_assistant_module.suggest_writing(
@@ -58,16 +65,18 @@ def test_suggest_writing_uses_non_stored_response_and_returns_suggestion(
 
     assert result.suggestion == "A clearer draft."
     assert result.task == "polish_content"
-    assert fake_client.responses.request is not None
-    assert fake_client.responses.request["store"] is False
-    assert fake_client.responses.request["model"] == "gpt-5.4-mini"
+    assert fake_client.aio.models.request is not None
+    assert fake_client.aio.models.request["model"] == "gemini-3.8-flash"
+    assert fake_client.aio.models.request["config"].max_output_tokens == 1500
+    assert fake_client.aio.closed
+    assert fake_client.closed
 
 
-def test_suggest_writing_reports_missing_api_key(
+def test_suggest_writing_reports_missing_google_api_key(
     monkeypatch: pytest.MonkeyPatch,
     writing_assistant_module: ModuleType,
 ) -> None:
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
 
     with pytest.raises(HTTPException) as error:
         asyncio.run(
@@ -80,26 +89,29 @@ def test_suggest_writing_reports_missing_api_key(
     assert error.value.status_code == 503
 
 
-def test_suggest_writing_reports_provider_errors(
+def test_suggest_writing_reports_gemini_errors(
     monkeypatch: pytest.MonkeyPatch,
     writing_assistant_module: ModuleType,
 ) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
 
-    class FailedResponses:
-        async def create(self, **kwargs: object) -> None:
-            raise OpenAIError("provider unavailable")
+    class FailedModels:
+        async def generate_content(self, **kwargs: object) -> None:
+            raise APIError(503, {"error": {"message": "provider unavailable"}})
 
-    class FailedClient:
-        responses = FailedResponses()
+    class FailedAsyncClient:
+        models = FailedModels()
 
-        async def __aenter__(self) -> Self:
-            return self
-
-        async def __aexit__(self, *args: object) -> None:
+        async def aclose(self) -> None:
             return None
 
-    monkeypatch.setattr(writing_assistant_module, "AsyncOpenAI", lambda **_: FailedClient())
+    class FailedClient:
+        aio = FailedAsyncClient()
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(writing_assistant_module.genai, "Client", lambda **_: FailedClient())
 
     with pytest.raises(HTTPException) as error:
         asyncio.run(
