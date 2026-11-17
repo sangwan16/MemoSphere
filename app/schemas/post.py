@@ -40,3 +40,8 @@ class PostRead(BaseModel):
     author_username: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class PostPage(BaseModel):
+    posts: list[PostRead]
+    next_cursor: str | None
