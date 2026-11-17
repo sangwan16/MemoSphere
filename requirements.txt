@@ -10,6 +10,10 @@ python-multipart
 email-validator
 openai
 google-genai
+langchain
+langgraph
+langchain-google-genai
+google-generativeai
 pytest
 httpx
 ruff
