@@ -3,14 +3,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.database import get_db
 from app.auth import router as auth_router
+from app.db.database import get_db
 from app.routes.bookmarks import router as bookmarks_router
 from app.routes.comments import router as comments_router
 from app.routes.likes import router as likes_router
 from app.routes.notifications import router as notifications_router
 from app.routes.posts import router as posts_router
+from app.routes.search import router as search_router
+from app.routes.shares import router as shares_router
 from app.routes.social import router as social_router
+from app.routes.writing_assistant import router as writing_assistant_router
 from app.utils.useful_apis import router as useful_apis_router
 
 app = FastAPI()
@@ -24,11 +27,14 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(posts_router)
+app.include_router(search_router)
+app.include_router(shares_router)
 app.include_router(social_router)
 app.include_router(comments_router)
 app.include_router(likes_router)
 app.include_router(bookmarks_router)
 app.include_router(notifications_router)
+app.include_router(writing_assistant_router)
 app.include_router(useful_apis_router)
 
 @app.get("/")

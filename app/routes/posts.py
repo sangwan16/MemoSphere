@@ -1,7 +1,10 @@
+import base64
+import binascii
+from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, exists, or_, select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -11,26 +14,46 @@ from app.models.category import Category
 from app.models.follow import Follow
 from app.models.post import Post
 from app.models.user import User
-from app.schemas.post import PostCreate, PostRead, PostUpdate
+from app.schemas.post import PostCreate, PostPage, PostRead, PostUpdate
+from app.utils.post_access import post_access_filter
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
 
-def _post_access_filter(viewer_id: int):
-    follows_author = exists(
-        select(Follow.id).where(
-            Follow.follower_id == viewer_id,
-            Follow.following_id == Post.author_id,
-        )
-    )
-    owns_post = Post.author_id == viewer_id
-    return and_(
-        or_(owns_post, User.is_public.is_(True), follows_author),
-        or_(
-            owns_post,
-            Post.visibility == "public",
-            and_(Post.visibility == "followers", follows_author),
-        ),
+def _encode_post_cursor(created_at: datetime, post_id: int) -> str:
+    value = f"{created_at.isoformat()}|{post_id}".encode()
+    return base64.urlsafe_b64encode(value).decode().rstrip("=")
+
+
+def _decode_post_cursor(cursor: str) -> tuple[datetime, int]:
+    try:
+        padded_cursor = cursor + "=" * (-len(cursor) % 4)
+        decoded = base64.urlsafe_b64decode(padded_cursor).decode()
+        created_at_value, post_id_value = decoded.split("|", maxsplit=1)
+        created_at = datetime.fromisoformat(created_at_value)
+        post_id = int(post_id_value)
+        if post_id <= 0:
+            raise ValueError
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid post cursor") from None
+    return created_at, post_id
+
+
+def _post_read(post: Post) -> PostRead:
+    return PostRead(
+        id=post.id,
+        title=post.title,
+        content=post.content,
+        image_urls=post.image_urls,
+        excerpt=post.excerpt,
+        category_id=post.category_id,
+        author_id=post.author_id,
+        visibility=post.visibility,
+        is_draft=post.is_draft,
+        created_at=post.created_at,
+        updated_at=post.updated_at,
+        author_email=post.author.email if post.author else None,
+        author_username=post.author.username if post.author else None,
     )
 
 
@@ -93,40 +116,52 @@ async def create_post(
     )
 
 
-@router.get("", response_model=list[PostRead])
+@router.get("", response_model=PostPage)
 async def list_posts(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
-) -> list[PostRead]:
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    cursor: Annotated[str | None, Query()] = None,
+    category_id: Annotated[int | None, Query(ge=1)] = None,
+) -> PostPage:
+    filters = [
+        Post.is_draft.is_(False),
+        post_access_filter(current_user.id),
+    ]
+    if category_id is not None:
+        filters.append(Post.category_id == category_id)
+    if cursor is not None:
+        cursor_created_at, cursor_id = _decode_post_cursor(cursor)
+        filters.append(
+            or_(
+                Post.created_at < cursor_created_at,
+                and_(
+                    Post.created_at == cursor_created_at,
+                    Post.id < cursor_id,
+                ),
+            )
+        )
+
     result = await db.execute(
         select(Post)
         .join(User, User.id == Post.author_id)
         .options(selectinload(Post.author), selectinload(Post.category))
-        .where(
-            Post.is_draft.is_(False),
-            _post_access_filter(current_user.id),
-        )
-        .order_by(Post.created_at.desc())
+        .where(*filters)
+        .order_by(Post.created_at.desc(), Post.id.desc())
+        .limit(limit + 1)
     )
-    posts = result.scalars().all()
-    return [
-        PostRead(
-            id=post.id,
-            title=post.title,
-            content=post.content,
-            image_urls=post.image_urls,
-            excerpt=post.excerpt,
-            category_id=post.category_id,
-            author_id=post.author_id,
-            visibility=post.visibility,
-            is_draft=post.is_draft,
-            created_at=post.created_at,
-            updated_at=post.updated_at,
-            author_email=post.author.email if post.author else None,
-            author_username=post.author.username if post.author else None,
-        )
-        for post in posts
-    ]
+    posts = list(result.scalars().all())
+    has_more = len(posts) > limit
+    posts = posts[:limit]
+    next_cursor = (
+        _encode_post_cursor(posts[-1].created_at, posts[-1].id)
+        if has_more and posts
+        else None
+    )
+    return PostPage(
+        posts=[_post_read(post) for post in posts],
+        next_cursor=next_cursor,
+    )
 
 
 @router.get("/users/{user_id}", response_model=list[PostRead])
@@ -154,7 +189,7 @@ async def list_user_posts(
         .where(
             Post.author_id == user.id,
             Post.is_draft.is_(False),
-            _post_access_filter(current_user.id),
+            post_access_filter(current_user.id),
         )
         .order_by(Post.created_at.desc())
     )
@@ -223,7 +258,7 @@ async def get_post(
         .options(selectinload(Post.author))
         .where(
             Post.id == post_id,
-            _post_access_filter(current_user.id),
+            post_access_filter(current_user.id),
         )
     )
     post = result.scalar_one_or_none()

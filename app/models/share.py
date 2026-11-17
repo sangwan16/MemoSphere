@@ -12,7 +12,10 @@ class Share(Base):
     __tablename__ = "shares"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    sender_id: Mapped[int] = mapped_column("user_id", ForeignKey("users.id"), nullable=False, index=True)
+    recipient_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
     post_id: Mapped[int] = mapped_column(ForeignKey("posts.id"), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
