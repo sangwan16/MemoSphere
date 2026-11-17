@@ -14,6 +14,10 @@ Production defaults to SMTP mode. Do not enable console delivery in production b
 
 `GET /posts` returns up to 20 visible posts by default. Use `limit` (1-100) to change the page size, and pass the returned `next_cursor` as `cursor` to fetch the next page. The response contains `posts` and `next_cursor`; a `null` cursor means there are no more posts. Use `category_id` to filter a category feed on the server.
 
+### Drafts
+
+Saving a post as a draft stores it in the database without publishing it. Authenticated users can list their drafts with `GET /posts/me/drafts` and load one of their drafts with `GET /posts/me/drafts/{post_id}`. Update a draft with `PUT /posts/{post_id}`; set `is_draft` to `false` when ready to publish. Draft queries are restricted to the signed-in author.
+
 ### Global search
 
 Authenticated clients can call `GET /search?q=...` to search usernames and post titles, excerpts, and content. The initial response contains separate `users` and `posts` pages, each with `items` and `next_cursor`. To load more of one result type, pass the same `q`, set `section=users` or `section=posts`, and send that section's cursor. Search returns usernames only for user results and excludes drafts and posts the viewer cannot access.
@@ -24,4 +28,4 @@ Apply the latest migration with `alembic upgrade head` before using post sharing
 
 ### Opt-in writing assistant
 
-Set `GOOGLE_API_KEY` in the backend environment (never in the frontend) to enable the authenticated `POST /ai/writing-assistant` endpoint. It uses `gemini-3.8-flash` by default; set `GEMINI_MODEL` to override the model. The endpoint accepts `polish_content`, `suggest_title`, or `suggest_excerpt` tasks and returns a suggestion without saving or publishing it. The composer sends draft text only when the user explicitly requests a suggestion, and applies it only after the user chooses to use it. With unpaid Gemini API quota, Google may use prompts and responses to improve products, and human reviewers may process them. Avoid submitting sensitive, confidential, or personal information; review Google's Gemini API terms for the data handling that applies to your billing status.
+Set `GOOGLE_API_KEY` in the backend environment (never in the frontend) to enable the authenticated `POST /ai/writing-assistant` endpoint. It uses `gemini-3.5-flash-lite` by default; set `GEMINI_MODEL` to override the model. The endpoint accepts `polish_content`, `suggest_title`, or `suggest_excerpt` tasks and returns a suggestion without saving or publishing it. The composer sends draft text only when the user explicitly requests a suggestion, and applies it only after the user chooses to use it. With unpaid Gemini API quota, Google may use prompts and responses to improve products, and human reviewers may process them. Avoid submitting sensitive, confidential, or personal information; review Google's Gemini API terms for the data handling that applies to your billing status.

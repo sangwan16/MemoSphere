@@ -51,7 +51,7 @@ async def suggest_writing(
             detail="The writing assistant is not configured.",
         )
 
-    model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
     client = genai.Client(api_key=api_key)
     try:
         response = await client.aio.models.generate_content(

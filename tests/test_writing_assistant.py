@@ -66,7 +66,7 @@ def test_suggest_writing_calls_gemini_and_returns_suggestion(
     assert result.suggestion == "A clearer draft."
     assert result.task == "polish_content"
     assert fake_client.aio.models.request is not None
-    assert fake_client.aio.models.request["model"] == "gemini-3.8-flash"
+    assert fake_client.aio.models.request["model"] == "gemini-3.5-flash-lite"
     assert fake_client.aio.models.request["config"].max_output_tokens == 1500
     assert fake_client.aio.closed
     assert fake_client.closed

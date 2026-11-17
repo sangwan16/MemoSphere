@@ -246,6 +246,44 @@ async def list_my_posts(
     ]
 
 
+@router.get("/me/drafts", response_model=list[PostRead])
+async def list_my_drafts(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[PostRead]:
+    result = await db.execute(
+        select(Post)
+        .options(selectinload(Post.author))
+        .where(
+            Post.author_id == current_user.id,
+            Post.is_draft.is_(True),
+        )
+        .order_by(Post.updated_at.desc(), Post.id.desc())
+    )
+    return [_post_read(post) for post in result.scalars().all()]
+
+
+@router.get("/me/drafts/{post_id}", response_model=PostRead)
+async def get_my_draft(
+    post_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> PostRead:
+    result = await db.execute(
+        select(Post)
+        .options(selectinload(Post.author))
+        .where(
+            Post.id == post_id,
+            Post.author_id == current_user.id,
+            Post.is_draft.is_(True),
+        )
+    )
+    post = result.scalar_one_or_none()
+    if post is None:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    return _post_read(post)
+
+
 @router.get("/{post_id}", response_model=PostRead)
 async def get_post(
     post_id: int,
